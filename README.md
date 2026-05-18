@@ -2,7 +2,7 @@
 ## 概要
 Pythonファイルを簡単にexe化します。
 
-windows専用です。
+windows-64bit専用です。
 
 初回動作時はsetup.batを押せば簡単に環境構築ができます。
 ## 制作環境
