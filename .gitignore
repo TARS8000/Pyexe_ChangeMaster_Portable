@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+runtime/
+
+# Build artifacts
+*Master/
+build/
+dist/
+
+# Installers and logs
+*.exe
+*.msi
+*.zip
+*.log
+*.txt
+
+# IDE files
+.idea/
+*.iml
+
+# Ignore the .gitignore file itself if you want
+# .gitignore
