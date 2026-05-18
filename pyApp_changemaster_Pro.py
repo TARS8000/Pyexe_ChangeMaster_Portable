@@ -608,13 +608,14 @@ End If
                 ver_file = self._generate_version_file(m_dir, base_name)
                 cmd.extend(["--version-file", ver_file])
 
-            # Conda系(runtime)環境特有のDLLパス自動追加
+            # ポータブル環境特有のDLLパス自動追加
             if python_exe == portable_python:
-                conda_bin_path = os.path.join(portable_python_dir, "Library", "bin")
-                if os.path.exists(conda_bin_path):
-                    self.log(f">>> [自動補正] Conda系のDLLパスを追加します: {conda_bin_path}")
-                    cmd.extend(["--paths", conda_bin_path])
-                    clean_env["PATH"] = conda_bin_path + os.pathsep + clean_env.get("PATH", "")
+                # ポータブルPython環境のDLLパスを自動検出して追加
+                portable_runtime_bin_path = os.path.join(portable_python_dir, "Library", "bin")
+                if os.path.exists(portable_runtime_bin_path):
+                    self.log(f">>> [自動補正] ポータブル環境のDLLパスを追加します: {portable_runtime_bin_path}")
+                    cmd.extend(["--paths", portable_runtime_bin_path])
+                    clean_env["PATH"] = portable_runtime_bin_path + os.pathsep + clean_env.get("PATH", "")
                 
                 site_packages_path = os.path.join(portable_python_dir, "Lib", "site-packages")
                 if os.path.exists(site_packages_path):

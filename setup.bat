@@ -1,83 +1,88 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "PYTHON_DIR=%~dp0spyder-runtime"
-set "MINICONDA_URL=https://repo.anaconda.com/miniconda/Miniconda3-py39_4.12.0-Windows-x86_64.exe"
-set "INSTALLER_NAME=%~dp0miniconda_installer.exe"
+set "PYTHON_DIR=%~dp0runtime"
+set "PYTHON_VERSION=3.12.4"
+set "PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/%PYTHON_VERSION%/python-%PYTHON_VERSION%-amd64.exe"
+set "INSTALLER_NAME=%~dp0python_installer.exe"
 
-echo =======================================================
-echo      Portable Python Environment Setup (spyder-runtime)
-echo =======================================================
+echo =================================================================
+echo      Portable Python Setup (Targeted Install Method)
+echo =================================================================
 echo.
 
-rem Check if spyder-runtime directory already exists and is not empty
+rem Check if runtime directory already exists
 if exist "%PYTHON_DIR%\python.exe" (
     echo Python environment already seems to be installed in:
     echo %PYTHON_DIR%
     echo.
-    echo If you want to reinstall, please delete this folder and run this script again.
+    echo If you want to reinstall, please DELETE the 'runtime' folder
+    echo and run this script again.
     echo.
     echo Setup skipped.
     goto :end
 )
 
-echo Target installation directory:
-echo %PYTHON_DIR%
+echo Target installation directory: %PYTHON_DIR%
 echo.
 
 rem Check for PowerShell
 where powershell >nul 2>nul
 if %errorlevel% neq 0 (
-    echo Error: PowerShell is required to download the installer.
-    echo Please install PowerShell and try again.
+    echo ERROR: PowerShell is required for this setup.
     goto :end
 )
 
-echo Downloading Miniconda installer...
-powershell -Command "Write-Host 'Downloading from %MINICONDA_URL%...'; Invoke-WebRequest -Uri '%MINICONDA_URL%' -OutFile '%INSTALLER_NAME%'"
-
+rem --- Download Python Installer ---
+echo [1/3] Downloading Python %PYTHON_VERSION% installer...
+powershell -Command "Invoke-WebRequest -Uri '%PYTHON_INSTALLER_URL%' -OutFile '%INSTALLER_NAME%'"
 if not exist "%INSTALLER_NAME%" (
     echo.
-    echo ERROR: Failed to download Miniconda installer.
-    echo Please check your internet connection or the URL:
-    echo %MINICONDA_URL%
-    goto :end
+    echo ERROR: Failed to download Python installer.
+    goto :cleanup
 )
 
-echo.
-echo Installing Miniconda (this may take a few minutes)...
-echo Please wait, the installer is running silently in the background.
-start /wait "" "%INSTALLER_NAME%" /InstallationType=JustMe /RegisterPython=0 /S /D="%PYTHON_DIR%"
+rem --- Perform targeted, isolated installation ---
+echo [2/3] Installing Python to 'runtime' folder...
+echo This may take a moment. A progress window may appear briefly.
+rem Correctly quote the installer path and ensure TargetDir is quoted.
+set "INSTALL_ARGS=/quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" PrependPath=0 AssociateFiles=0 Shortcuts=0 Include_pip=1 Include_tcltk=1"
+echo Running: "%INSTALLER_NAME%" %INSTALL_ARGS%
+start /wait "" "%INSTALLER_NAME%" %INSTALL_ARGS%
 
 if %errorlevel% neq 0 (
     echo.
-    echo ERROR: Miniconda installation failed.
-    echo The installer exited with an error.
+    echo ERROR: Python installation failed with error code: %errorlevel%.
+    echo Please try running this script as an Administrator if the problem persists.
     goto :cleanup
 )
 
-rem Verify installation
 if not exist "%PYTHON_DIR%\python.exe" (
     echo.
-    echo ERROR: Installation seems to have failed. python.exe not found.
-    echo Please check for any error messages and try again.
+    echo ERROR: Failed to install Python. python.exe not found.
     goto :cleanup
 )
 
-echo.
-echo Installation successful!
+rem --- Install PyInstaller ---
+echo [3/3] Installing PyInstaller...
+"%PYTHON_DIR%\python.exe" -m pip install pyinstaller
+if %errorlevel% neq 0 (
+    echo.
+    echo ERROR: PyInstaller installation failed.
+    goto :cleanup
+)
+
 echo.
 echo =======================================================
 echo      Setup Complete!
 echo =======================================================
-echo The portable Python environment is ready in the 'spyder-runtime' folder.
+echo A portable Python environment with the full standard library
+echo is ready in the 'runtime' folder.
 
 :cleanup
-if exist "%INSTALLER_NAME%" (
-    echo.
-    echo Cleaning up installer file...
-    del "%INSTALLER_NAME%"
-)
+echo.
+echo Cleaning up temporary files...
+if exist "%INSTALLER_NAME%" del "%INSTALLER_NAME%"
 
 :end
 echo.
