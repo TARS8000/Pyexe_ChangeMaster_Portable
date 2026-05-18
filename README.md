@@ -10,4 +10,4 @@ Spyder
 
 Intellij IDE
 ## 注意
-・アプリ経由でexe化したものはSACに弾かれるケースが多いです。windows設定から変えてください。
+・SACに弾かれるケースが多いです。windows設定から変えてください。
