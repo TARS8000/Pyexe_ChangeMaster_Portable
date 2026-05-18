@@ -5,7 +5,7 @@ Pythonファイルを簡単にexe化します。
 ## 対応環境
 windows　64bit
 
-初回動作時はsetup.batを押せば簡単に環境構築ができます。
+動作にはPythonが必要です。初回動作時はsetup.batを押せば簡単に環境構築ができます。
 ## 制作環境
 Spyder
 
