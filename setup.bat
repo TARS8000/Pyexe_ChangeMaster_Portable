@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "PYTHON_DIR=%~dp0runtime"
+set "PYTHON_DIR_VALUE=%~dp0runtime"
 set "PYTHON_VERSION=3.12.4"
 set "PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/%PYTHON_VERSION%/python-%PYTHON_VERSION%-amd64.exe"
 set "INSTALLER_NAME=%~dp0python_installer.exe"
@@ -12,9 +12,9 @@ echo =================================================================
 echo.
 
 rem Check if runtime directory already exists
-if exist "%PYTHON_DIR%\python.exe" (
+if exist "!PYTHON_DIR_VALUE!\python.exe" (
     echo Python environment already seems to be installed in:
-    echo %PYTHON_DIR%
+    echo !PYTHON_DIR_VALUE!
     echo.
     echo If you want to reinstall, please DELETE the 'runtime' folder
     echo and run this script again.
@@ -23,7 +23,7 @@ if exist "%PYTHON_DIR%\python.exe" (
     goto :end
 )
 
-echo Target installation directory: %PYTHON_DIR%
+echo Target installation directory: !PYTHON_DIR_VALUE!
 echo.
 
 rem Check for PowerShell
@@ -42,13 +42,17 @@ if not exist "%INSTALLER_NAME%" (
     goto :cleanup
 )
 
+rem --- Get short path name for PYTHON_DIR_VALUE if it contains spaces/special chars ---
+for %%I in ("!PYTHON_DIR_VALUE!") do set "PYTHON_DIR_SHORT=%%~sI"
+
 rem --- Perform targeted, isolated installation ---
 echo [2/3] Installing Python to 'runtime' folder...
 echo This may take a moment. A progress window may appear briefly.
-rem Correctly quote the installer path and ensure TargetDir is quoted.
-set "INSTALL_ARGS=/quiet InstallAllUsers=0 TargetDir="%PYTHON_DIR%" PrependPath=0 AssociateFiles=0 Shortcuts=0 Include_pip=1 Include_tcltk=1"
-echo Running: "%INSTALLER_NAME%" %INSTALL_ARGS%
-start /wait "" "%INSTALLER_NAME%" %INSTALL_ARGS%
+rem Construct TargetDir argument with explicit quotes, using short path name
+set "TARGET_DIR_ARG=TargetDir="!PYTHON_DIR_SHORT!""
+set "INSTALL_ARGS=/quiet InstallAllUsers=0 !TARGET_DIR_ARG! PrependPath=0 AssociateFiles=0 Shortcuts=0 Include_pip=1 Include_tcltk=1"
+echo Running: "%INSTALLER_NAME%" !INSTALL_ARGS!
+start /wait "" "%INSTALLER_NAME%" !INSTALL_ARGS!
 
 if %errorlevel% neq 0 (
     echo.
@@ -57,7 +61,7 @@ if %errorlevel% neq 0 (
     goto :cleanup
 )
 
-if not exist "%PYTHON_DIR%\python.exe" (
+if not exist "!PYTHON_DIR_VALUE!\python.exe" (
     echo.
     echo ERROR: Failed to install Python. python.exe not found.
     goto :cleanup
@@ -65,7 +69,7 @@ if not exist "%PYTHON_DIR%\python.exe" (
 
 rem --- Install PyInstaller ---
 echo [3/3] Installing PyInstaller...
-"%PYTHON_DIR%\python.exe" -m pip install pyinstaller
+"!PYTHON_DIR_VALUE!\python.exe" -m pip install pyinstaller
 if %errorlevel% neq 0 (
     echo.
     echo ERROR: PyInstaller installation failed.
