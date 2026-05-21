@@ -527,7 +527,8 @@ End If
                 app_dir = os.path.dirname(os.path.abspath(__file__))
             
             portable_python_dir = os.path.join(app_dir, "runtime")
-            portable_python = os.path.join(portable_python_dir, "python.exe")
+            # Correct path for venv created by uv/venv
+            portable_python = os.path.join(portable_python_dir, "Scripts", "python.exe")
             
             if os.path.exists(portable_python):
                 python_exe = portable_python
@@ -563,14 +564,16 @@ End If
                 self.log(f">>> パッケージをインストール中: {', '.join(packages_to_install)}")
                 pip_cmd = [python_exe, "-m", "pip", "install"] + packages_to_install
                 
-                pip_process = subprocess.Popen(pip_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+                self.process = subprocess.Popen(pip_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
                 
-                for line in pip_process.stdout:
-                    if self.is_cancelled: return
-                    self.log("  [pip] " + line.strip())
-                pip_process.wait()
+                # Safer iteration over stdout
+                if self.process.stdout:
+                    for line in self.process.stdout:
+                        if self.is_cancelled: return
+                        self.log("  [pip] " + line.strip())
+                self.process.wait()
                 
-                if pip_process.returncode == 0:
+                if self.process.returncode == 0:
                     self.log(">>> パッケージのインストール完了！")
                 else:
                     self.log("【警告】一部パッケージのインストールに失敗した可能性がありますが、続行します。")
@@ -608,19 +611,6 @@ End If
                 ver_file = self._generate_version_file(m_dir, base_name)
                 cmd.extend(["--version-file", ver_file])
 
-            # ポータブル環境特有のDLLパス自動追加
-            if python_exe == portable_python:
-                # ポータブルPython環境のDLLパスを自動検出して追加
-                portable_runtime_bin_path = os.path.join(portable_python_dir, "Library", "bin")
-                if os.path.exists(portable_runtime_bin_path):
-                    self.log(f">>> [自動補正] ポータブル環境のDLLパスを追加します: {portable_runtime_bin_path}")
-                    cmd.extend(["--paths", portable_runtime_bin_path])
-                    clean_env["PATH"] = portable_runtime_bin_path + os.pathsep + clean_env.get("PATH", "")
-                
-                site_packages_path = os.path.join(portable_python_dir, "Lib", "site-packages")
-                if os.path.exists(site_packages_path):
-                    cmd.extend(["--paths", site_packages_path])
-
             extra_args = self.extra_args_var.get().strip()
             if extra_args:
                 import shlex
@@ -650,12 +640,14 @@ End If
             self.log(">>> PyInstaller 実行中...")
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
-            for line in self.process.stdout:
-                if self.is_cancelled: break
-                self.log(line.strip())
-                if "Building EXE" in line: self.set_progress(70)
-
+            # Safer iteration over stdout
+            if self.process.stdout:
+                for line in self.process.stdout:
+                    if self.is_cancelled: break
+                    self.log(line.strip())
+                    if "Building EXE" in line: self.set_progress(70)
             self.process.wait()
+
             if self.is_cancelled: return
 
             # --- 5.5. フォルダ階層の整理 (PyInstallerが勝手に作る不要なサブフォルダをフラット化) ---
