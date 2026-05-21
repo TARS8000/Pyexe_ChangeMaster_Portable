@@ -10,5 +10,7 @@ windows　64bit
 Spyder
 
 Intellij IDE
+
+Gemini Pro
 ## 注意
 ・SACに弾かれるケースが多いです。windows設定から変えてください。
