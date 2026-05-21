@@ -2,7 +2,7 @@
 """
 Created on Wed Apr  8 22:46:10 2026
 
-@author: TARS
+@author: denzo
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -12,6 +12,8 @@ import subprocess
 import threading
 import ast
 import shutil
+import re
+import shlex
 
 class PyAppChanger(tk.Tk):
     # Pythonの標準ライブラリ
@@ -153,8 +155,8 @@ class PyAppChanger(tk.Tk):
 
         ttk.Label(frame_opt, text="PyInstallerの追加引数:\n※DLLエラー回避等に使用").grid(row=5, column=0, sticky=tk.W, **padding_opts)
         self.extra_args_var = tk.StringVar(value="")
-        ttk.Entry(frame_opt, textvariable=self.extra_args_var, width=45).grid(row=5, column=1, sticky=tk.W, **padding_opts)
-        ttk.Label(frame_opt, text="例: --copy-metadata pillow", foreground="gray").grid(row=5, column=1, sticky=tk.E, **padding_opts)
+        ttk.Entry(frame_file, textvariable=self.extra_args_var, width=45).grid(row=5, column=1, sticky=tk.W, **padding_opts)
+        ttk.Label(frame_file, text="例: --copy-metadata pillow", foreground="gray").grid(row=5, column=1, sticky=tk.E, **padding_opts)
 
         # --- 進行状態エリア ---
         frame_prog = ttk.LabelFrame(scrollable_frame, text="進行状態")
@@ -448,12 +450,6 @@ End If
                 flag = f"--copy-metadata {m_mod}"
                 if flag not in current_extra:
                     current_extra = f"{current_extra} {flag}".strip()
-
-            if "pillow" in pip_list:
-                for h_mod in ["PIL._imaging", "PIL._tkinter"]:
-                    flag = f"--hidden-import {h_mod}"
-                    if flag not in current_extra:
-                        current_extra = f"{current_extra} {flag}".strip()
                     
             self.extra_args_var.set(current_extra)
 
@@ -463,7 +459,6 @@ End If
                 msg += f"\n\n※実行時のエラーを防ぐため、以下の引数を自動適用しました:"
                 if collect_list: msg += f"\n--collect-all: {', '.join(set(collect_list))}"
                 if metadata_list: msg += f"\n--copy-metadata: {', '.join(set(metadata_list))}"
-                if "pillow" in pip_list: msg += f"\n--hidden-import: PIL._imaging, PIL._tkinter"
             messagebox.showinfo("自動検出完了", msg)
 
         return len(pip_list)
@@ -514,6 +509,17 @@ End If
         
         threading.Thread(target=self._run_conversion, args=(py_file, out_dir), daemon=True).start()
 
+    def _run_command(self, cmd, env):
+        self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        if self.process.stdout:
+            for line in self.process.stdout:
+                if self.is_cancelled:
+                    self.process.terminate()
+                    return False
+                self.log(line.strip())
+        self.process.wait()
+        return self.process.returncode == 0
+
     def _run_conversion(self, py_file, out_dir):
         try:
             clean_env = self._get_clean_env()
@@ -527,7 +533,6 @@ End If
                 app_dir = os.path.dirname(os.path.abspath(__file__))
             
             portable_python_dir = os.path.join(app_dir, "runtime")
-            # Correct path for venv created by uv/venv
             portable_python = os.path.join(portable_python_dir, "Scripts", "python.exe")
             
             if os.path.exists(portable_python):
@@ -548,35 +553,25 @@ End If
 
             # --- 2. pipによる必要パッケージの自動インストール ---
             packages_to_install = []
-            
             check_cmd = [python_exe, "-m", "PyInstaller", "--version"]
-            check_proc = subprocess.run(check_cmd, capture_output=True, env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            check_proc = subprocess.run(check_cmd, capture_output=True, text=True, env=clean_env)
+            self.log(check_proc.stdout.strip())
             if check_proc.returncode != 0:
                 self.log(">>> PyInstallerが見つかりません。自動インストール対象に追加します。")
                 packages_to_install.append("pyinstaller")
 
             user_pkgs_raw = self.pip_packages_var.get().replace(',', ' ').split()
             if user_pkgs_raw:
-                packages_to_install.extend(user_pkgs_raw)
+                packages_to_install.extend(p for p in user_pkgs_raw if p)
 
             if packages_to_install:
                 self.set_progress(5)
                 self.log(f">>> パッケージをインストール中: {', '.join(packages_to_install)}")
                 pip_cmd = [python_exe, "-m", "pip", "install"] + packages_to_install
-                
-                self.process = subprocess.Popen(pip_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-                
-                # Safer iteration over stdout
-                if self.process.stdout:
-                    for line in self.process.stdout:
-                        if self.is_cancelled: return
-                        self.log("  [pip] " + line.strip())
-                self.process.wait()
-                
-                if self.process.returncode == 0:
-                    self.log(">>> パッケージのインストール完了！")
-                else:
+                if not self._run_command(pip_cmd, clean_env):
                     self.log("【警告】一部パッケージのインストールに失敗した可能性がありますが、続行します。")
+                else:
+                    self.log(">>> パッケージのインストール完了！")
 
             self.set_progress(10)
 
@@ -590,67 +585,65 @@ End If
                 counter += 1
             os.makedirs(m_dir, exist_ok=True)
 
-            # --- 4. PyInstaller コマンド構築 ---
+            # --- 4. PyInstallerコマンドの構築 (直接実行) ---
+            self.log(">>> PyInstallerコマンドを構築します...")
             is_direct_master = (self.output_mode_var.get() == 2)
             dist_path = m_dir if is_direct_master else os.path.join(m_dir, "dist")
-
-            cmd = [python_exe, "-m", "PyInstaller", "--name", base_name, 
-                   "--workpath", os.path.join(m_dir, "build"), 
-                   "--distpath", dist_path,
-                   "--specpath", m_dir, "-y"]
+            
+            cmd = [
+                python_exe, "-m", "PyInstaller",
+                "--name", base_name,
+                "--workpath", os.path.join(m_dir, "build"),
+                "--distpath", dist_path,
+                "--specpath", m_dir,
+                "-y", "--noconfirm"
+            ]
 
             if self.onefile_var.get(): cmd.append("--onefile")
             if self.noconsole_var.get(): cmd.append("--noconsole")
             if self.icon_var.get(): cmd.extend(["--icon", self.icon_var.get()])
-
-            # Smart App Control 対策
-            ver_file = None  
-            if self.sac_bypass_var.get():
-                cmd.append("--noupx")
-                self.log(">>> SAC対策: UPX無効化とバージョン情報の生成を適用します")
-                ver_file = self._generate_version_file(m_dir, base_name)
-                cmd.extend(["--version-file", ver_file])
-
+            if self.sac_bypass_var.get(): cmd.append("--noupx")
+            
             extra_args = self.extra_args_var.get().strip()
             if extra_args:
-                import shlex
                 cmd.extend(shlex.split(extra_args))
 
+            cmd.append(py_file)
+
+            # --- 5. PyInstaller 実行 ---
+            self.log(">>> PyInstaller 実行中...")
+            if not self._run_command(cmd, clean_env):
+                self.log("【エラー】PyInstallerのビルドに失敗しました。")
+                return
+
+            # --- 6. ビルド後のデータコピー処理 ---
+            self.log(">>> 追加データをコピーします...")
             data_raw = self.data_dir_var.get()
             if data_raw:
                 for p in data_raw.split('|'):
                     p = p.strip()
-                    if os.path.exists(p):
-                        try:
-                            rel = os.path.relpath(p, base_dir)
-                            if rel.startswith(".."):
-                                dest = os.path.basename(p) if os.path.isdir(p) else "."
-                            else:
-                                if os.path.isdir(p): dest = rel
-                                else:
-                                    dest = os.path.dirname(rel)
-                                    if not dest: dest = "."
-                        except ValueError:
-                            dest = os.path.basename(p) if os.path.isdir(p) else "."
-                        cmd.extend(["--add-data", f"{p}{os.pathsep}{dest}"])
+                    if not os.path.exists(p):
+                        self.log(f"[警告] データパスが見つかりません: {p}")
+                        continue
+                    
+                    dest_name = os.path.basename(p)
+                    dest_path = os.path.join(dist_path, dest_name)
+                    
+                    try:
+                        if os.path.isdir(p):
+                            if os.path.exists(dest_path):
+                                shutil.rmtree(dest_path)
+                            shutil.copytree(p, dest_path)
+                            self.log(f"  フォルダをコピーしました: {dest_name}")
+                        else: # is file
+                            shutil.copy2(p, dest_path)
+                            self.log(f"  ファイルをコピーしました: {dest_name}")
+                    except Exception as e:
+                        self.log(f"[エラー] データのコピーに失敗しました: {p} -> {dest_path}")
+                        self.log(f"  理由: {e}")
 
-            cmd.append(py_file)
-            
-            # --- 5. PyInstaller 実行 ---
-            self.log(">>> PyInstaller 実行中...")
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='cp932', errors='replace', env=clean_env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-
-            # Safer iteration over stdout
-            if self.process.stdout:
-                for line in self.process.stdout:
-                    if self.is_cancelled: break
-                    self.log(line.strip())
-                    if "Building EXE" in line: self.set_progress(70)
-            self.process.wait()
-
-            if self.is_cancelled: return
-
-            # --- 5.5. フォルダ階層の整理 (PyInstallerが勝手に作る不要なサブフォルダをフラット化) ---
+            # --- 7. 仕上げ処理 ---
+            self.log(">>> 仕上げ処理を開始します...")
             if not self.onefile_var.get():
                 built_sub_dir = os.path.join(dist_path, base_name)
                 if os.path.exists(built_sub_dir) and os.path.isdir(built_sub_dir):
@@ -658,28 +651,16 @@ End If
                     for item in os.listdir(built_sub_dir):
                         src_path = os.path.join(built_sub_dir, item)
                         dst_path = os.path.join(dist_path, item)
-                        
-                        # 上書き回避処理
                         if os.path.exists(dst_path):
                             if os.path.isdir(dst_path): shutil.rmtree(dst_path)
                             else: os.remove(dst_path)
-                            
                         shutil.move(src_path, dist_path)
                     os.rmdir(built_sub_dir)
 
-            # --- 6. 仕上げ処理 (ランチャー・ショートカット作成) ---
-            self.log(">>> 起動用ファイルのセットアップ中...")
-            
             shortcut_base = os.path.join(m_dir, base_name)
-            
-            # 階層整理により、exeの場所は常に dist_path 直下になります
             target_exe = os.path.join(dist_path, f"{base_name}.exe")
             
-            if is_direct_master:
-                # [モード2] Master直下の場合、本体がすぐ見つかるためショートカットは作成不要
-                self.log(">>> exe本体がMaster直下にあるため、ショートカット作成をスキップします。")
-            else:
-                # [モード0, 1] distフォルダを利用する場合
+            if not is_direct_master:
                 mode = self.output_mode_var.get()
                 if mode == 0:
                     if self.onefile_var.get():
@@ -694,11 +675,9 @@ End If
             self.set_progress(85)
             self._remove_zone_identifier(m_dir)
 
-            # --- 7. runtime の同梱処理 ---
             if self.bundle_runtime_var.get():
                 self.log(">>> runtime を同梱中 (コピーしています...)")
                 dest_runtime = os.path.join(dist_path, "runtime")
-
                 if os.path.exists(portable_python_dir):
                     try:
                         shutil.copytree(portable_python_dir, dest_runtime)
@@ -719,6 +698,8 @@ End If
 
         except Exception as e:
             self.log(f"エラー発生: {e}")
+            import traceback
+            self.log(traceback.format_exc())
         finally:
             self.start_btn.config(state=tk.NORMAL, bg="#0078D7")
             self.cancel_btn.config(state=tk.DISABLED)
